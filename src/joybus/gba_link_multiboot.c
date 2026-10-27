@@ -10,8 +10,13 @@
 #include <string.h>
 
 #include "asset.h"
+#include "interrupt.h"
+#include "joybus_commands.h"
+#include "timer.h"
 #include "gba_link_multiboot.h"
 
+
+#define IDENTIFY_RETRY_DELAY_US TIMER_TICKS(5000)
 
 // TODO Simplify functions calc_key, update_crc, and cipher_data
 
@@ -22,7 +27,7 @@
 #define MAGIC_KAWA 0x6177614b  // "awaK" or "Kawa" ?
 #define MAGIC_BY 0x20796220  // " yb " or " by " ?
 
-uint32_t calc_key(uint32_t size, gba_link_logo_speed_t speed, gba_link_logo_color_t color) {
+uint32_t calc_key(uint32_t size, gba_link_multiboot_logo_speed_t speed, gba_link_multiboot_logo_color_t color) {
 	uint32_t ret = 0;
 	size = (size-0x200) >> 3;
 	//uint32_t pal = 0x2e << 16;	// Color 2 (0..6) Speed -4 (-4..4)
@@ -98,12 +103,13 @@ typedef enum {
     GBA_MULTIBOOT_DONE,
 } multiboot_state_t;
 
+// FIXME Alignment issue ??
 typedef struct
 {
     FILE* file;
     int length;
-    gba_link_logo_color_t logo_color;
-    gba_link_logo_speed_t logo_speed;
+    gba_link_multiboot_logo_color_t logo_color;
+    gba_link_multiboot_logo_speed_t logo_speed;
     multiboot_state_t state;
     uint32_t crc;
     uint32_t sessionkey;
@@ -112,25 +118,42 @@ typedef struct
     void *ctx;
 } multiboot_context_t;
 
+static multiboot_context_t multiboot_contexts[4];
 
-// TODO Check GBA status byte and handle errors (invalid GBA status, file read failure, ...) --> ferror(context->file) + fclose(context->file) + callback with failure
+static void terminate_multiboot(int port, gba_link_multiboot_status_t status, multiboot_context_t* context) {
+    gba_link_multiboot_callback_t callback = context->callback;
+    if (callback != NULL)
+        callback(port, status, (void*)context->ctx);
+    fclose(context->file);
+    memset(context, 0, sizeof(multiboot_context_t));
+}
 
-static void gba_link_write_callback(int port, uint8_t gba_status, void *ctx);
+static void gba_link_write_callback(int port, uint8_t gba_status, gba_link_io_status_t io_status, void *ctx);
 
-static void gba_link_read_callback(int port, const uint8_t data[4], uint8_t gba_status, void *ctx) {
+static void gba_link_read_callback(int port, const uint8_t data[4], uint8_t gba_status, gba_link_io_status_t io_status, void *ctx) {
     multiboot_context_t* context = (void*) ctx;
+    // Handle I/O errors
+    if (io_status != GBA_LINK_IO_STATUS_OK) {
+        terminate_multiboot(port, GBA_LINK_MULTIBOOT_BAD_IO, context);
+        return;
+    }
     switch (context->state) {
         case GBA_MULTIBOOT_IDLE: {
+            // Check GBA status
+            if (gba_status != (JOYBUS_IDENTIFY_STATUS_GBA_GPIO0 | JOYBUS_IDENTIFY_STATUS_GBA_SENDING)) {
+                terminate_multiboot(port, GBA_LINK_MULTIBOOT_BAD_STATUS, context);
+                return; 
+            }
             // Compute session key from received data
             context->sessionkey = *(uint32_t*)data;
             context->sessionkey = context->sessionkey ^ MAGIC_SEDO;
             context->sessionkey = __builtin_bswap32(context->sessionkey);
             // Compute host key from payload length and palette configuration
             uint32_t calc = calc_key(ROUND_UP_8(context->length), context->logo_speed, context->logo_color);
-            gba_link_write_async(port, (uint8_t*) &calc, gba_link_write_callback, ctx);
             context->crc = 0x15a0;
             context->sent = 0;
             context->state = GBA_MULTIBOOT_CLEARTEXT;
+            gba_link_write_async(port, (uint8_t*) &calc, gba_link_write_callback, ctx);
             break;
         }
         case GBA_MULTIBOOT_CLEARTEXT:
@@ -140,11 +163,7 @@ static void gba_link_read_callback(int port, const uint8_t data[4], uint8_t gba_
         case GBA_MULTIBOOT_CHECK: {
             // TODO Check GBA response ? Read twice (dummy bytes, initial code) ??
             context->state = GBA_MULTIBOOT_DONE;
-            gba_link_multiboot_callback_t callback = context->callback;
-            if (callback != NULL)
-                callback(port, (void*)context->ctx);
-            fclose(context->file);
-            free(context);
+            terminate_multiboot(port, GBA_LINK_MULTIBOOT_OK, context);
             break;
         }
         case GBA_MULTIBOOT_DONE: {
@@ -153,12 +172,26 @@ static void gba_link_read_callback(int port, const uint8_t data[4], uint8_t gba_
     }
 }
 
-static void gba_link_write_callback(int port, uint8_t gba_status, void *ctx) {
+static void gba_link_write_callback(int port, uint8_t gba_status, gba_link_io_status_t io_status, void *ctx) {
     multiboot_context_t* context = (void*) ctx;
+    // Handle I/O errors
+    if (io_status != GBA_LINK_IO_STATUS_OK) {
+        terminate_multiboot(port, GBA_LINK_MULTIBOOT_BAD_IO, context);
+        return;
+    }
     switch (context->state) {
         case GBA_MULTIBOOT_IDLE:
             break;
         case GBA_MULTIBOOT_CLEARTEXT: {
+            // Check GBA status
+            if (context->sent > 0 && !(gba_status & JOYBUS_IDENTIFY_STATUS_GBA_GPIO1)) {
+                terminate_multiboot(port, GBA_LINK_MULTIBOOT_BAD_STATUS, context);
+                return; 
+            }
+            if ((gba_status & JOYBUS_IDENTIFY_STATUS_GBA_GPIO0) != (~(context->sent<<2) & JOYBUS_IDENTIFY_STATUS_GBA_GPIO0)) {
+                terminate_multiboot(port, GBA_LINK_MULTIBOOT_BAD_STATUS, context);
+                return; 
+            }
             uint8_t buf[4];
             size_t nread;
             if ((nread = fread(buf, sizeof(buf[0]), sizeof(buf), context->file)) != 0) {
@@ -167,39 +200,62 @@ static void gba_link_write_callback(int port, uint8_t gba_status, void *ctx) {
                 if (context->sent == 0xc0) {
                     context->state = GBA_MULTIBOOT_CIPHERTEXT;
                 }
+            } else {
+                terminate_multiboot(port, GBA_LINK_MULTIBOOT_BAD_FILE, context);
+                return;
             }
-            // TODO Handle errors: if (ferror(context->file)) + fclose(context->file) + callback with failure
-            // TODO Status: GPIO0 should be toggled after each write command ??
             break;
         }
         case GBA_MULTIBOOT_CIPHERTEXT: {
+            if ((gba_status & JOYBUS_IDENTIFY_STATUS_GBA_GPIO0) != (~(context->sent<<2) & JOYBUS_IDENTIFY_STATUS_GBA_GPIO0)) {
+                terminate_multiboot(port, GBA_LINK_MULTIBOOT_BAD_STATUS, context);
+                return; 
+            }
+
             // ROM data must be ciphered for the remaining of the payload
             // CRC is updated for each packet sent
             // FIXME avoid swapping twice
-            uint8_t buf[4];
-            size_t nread;
-            if ((nread = fread(buf, sizeof(buf[0]), sizeof(buf), context->file)) != 0) {
-                uint32_t d = __builtin_bswap32(*(uint32_t*)buf);
-                uint32_t cipherText = __builtin_bswap32(cipher_data(d, context->sent, &context->sessionkey));
-                context->crc = update_crc(context->crc, d);
-                gba_link_write_async(port, (uint8_t*) &cipherText, gba_link_write_callback, ctx);
-                context->sent += 4;
-                if (context->sent == ROUND_UP_8(context->length)) {
-                    context->state = GBA_MULTIBOOT_CRC;
+            uint32_t d = 0; // If rounded-length is larger than file length, pad with zeroes
+            if (context->sent < context->length) {
+                uint8_t buf[4];
+                size_t nread;
+                if ((nread = fread(buf, sizeof(buf[0]), sizeof(buf), context->file)) != 0) {
+                    d = __builtin_bswap32(*(uint32_t*)buf);
+                } else {
+                    terminate_multiboot(port, GBA_LINK_MULTIBOOT_BAD_FILE, context);
+                    return;
                 }
             }
-            // TODO Handle errors: if (ferror(context->file)) + fclose(context->file) + callback with failure
+            uint32_t cipherText = __builtin_bswap32(cipher_data(d, context->sent, &context->sessionkey));
+            context->crc = update_crc(context->crc, d);
+            gba_link_write_async(port, (uint8_t*) &cipherText, gba_link_write_callback, ctx);
+            context->sent += 4;
+            if (context->sent == ROUND_UP_8(context->length)) {
+                context->state = GBA_MULTIBOOT_CRC;
+            }
             break;
         }
         case GBA_MULTIBOOT_CRC: {
+            if ((gba_status & JOYBUS_IDENTIFY_STATUS_GBA_GPIO0) != (~(context->sent<<2) & JOYBUS_IDENTIFY_STATUS_GBA_GPIO0)) {
+                terminate_multiboot(port, GBA_LINK_MULTIBOOT_BAD_STATUS, context);
+                return; 
+            }
+
             // Finalize and send CRC
             context->crc |= (ROUND_UP_8(context->length) << 16);
             context->crc = __builtin_bswap32(cipher_data(context->crc, context->sent, &context->sessionkey));
             gba_link_write_async(port, (uint8_t*) &context->crc, gba_link_write_callback, ctx);
             context->state = GBA_MULTIBOOT_CHECK;
+            // TODO Check GBA Status
             break;
         }
         case GBA_MULTIBOOT_CHECK: {
+            // TODO sent + 4 ??
+            /*if ((gba_status & JOYBUS_IDENTIFY_STATUS_GBA_GPIO0) != (~(context->sent<<2) & JOYBUS_IDENTIFY_STATUS_GBA_GPIO0)) {
+                terminate_multiboot(port, GBA_LINK_MULTIBOOT_BAD_STATUS, context);
+                return; 
+            }*/
+
             gba_link_read_async(port, gba_link_read_callback, ctx);
             break;
         }
@@ -211,19 +267,151 @@ static void gba_link_write_callback(int port, uint8_t gba_status, void *ctx) {
 void gba_link_multiboot_start(
     int port,
     const char *file_name,
-    gba_link_logo_color_t logo_color,
-    gba_link_logo_speed_t logo_speed,
+    gba_link_multiboot_logo_color_t logo_color,
+    gba_link_multiboot_logo_speed_t logo_speed,
     gba_link_multiboot_callback_t callback,
     void *ctx
 )
 {
-    multiboot_context_t* multiboot_context = calloc(1, sizeof(multiboot_context_t));
-    multiboot_context->callback = callback;
-    multiboot_context->ctx = ctx;
-    multiboot_context->file = asset_fopen(file_name, &multiboot_context->length);
-    multiboot_context->logo_color = logo_color;
-    multiboot_context->logo_speed = logo_speed;
-    gba_link_read_async(port, gba_link_read_callback, (void*)multiboot_context);
+    memset(&multiboot_contexts[port], 0, sizeof(multiboot_context_t));
+    multiboot_contexts[port].callback = callback;
+    multiboot_contexts[port].ctx = ctx;
+    multiboot_contexts[port].file = asset_fopen(file_name, &multiboot_contexts[port].length);
+    multiboot_contexts[port].logo_color = logo_color;
+    multiboot_contexts[port].logo_speed = logo_speed;
+    gba_link_read_async(port, gba_link_read_callback, (void*)&multiboot_contexts[port]);
 }
+
+
+typedef struct
+{
+    int port;
+    bool pending;
+    uint8_t progress;
+    gba_link_multiboot_detect_callback_t callback;
+    timer_link_t *retry_timer;
+    timer_link_t *abort_timer;
+    void *ctx;
+} gba_link_multiboot_detect_context_t;
+
+static gba_link_multiboot_detect_context_t gba_link_multiboot_detect_contexts[4];
+
+static void gba_link_multiboot_identify_callback(uint64_t *out_dwords, void *ctx);
+
+static void queue_joybus_input_reset_async(gba_link_multiboot_detect_context_t* context) {
+    joybus_cmd_reset_port_t cmd = { .send = {
+        .command = JOYBUS_COMMAND_ID_RESET,
+    } };
+    // Allocate the Joybus operation block input and output buffers
+    uint8_t input[JOYBUS_BLOCK_SIZE] = {0};
+    // Skip commands on ports before the desired port offset
+    size_t i = context->port;
+    // Set the command metadata
+    input[i++] = sizeof(cmd.send);
+    input[i++] = sizeof(cmd.recv);
+    // Copy the send_data into the input buffer
+    memcpy( &input[i], (void *)&cmd.send, sizeof(cmd.send) );
+    i += sizeof(cmd.send) + sizeof(cmd.recv);
+    // Close out the Joybus operation block
+    input[i] = 0xFE;
+    input[sizeof(input) - 1] = 0x01;
+    joybus_exec_async(input, NULL, NULL);
+}
+
+static void queue_joybus_input_identify_async(gba_link_multiboot_detect_context_t* context) {
+    joybus_cmd_identify_port_t cmd = { .send = {
+        .command = JOYBUS_COMMAND_ID_IDENTIFY,
+    } };
+    // Allocate the Joybus operation block input and output buffers
+    uint8_t input[JOYBUS_BLOCK_SIZE] = {0};
+    // Skip commands on ports before the desired port offset
+    size_t i = context->port;
+    // Set the command metadata
+    input[i++] = sizeof(cmd.send);
+    input[i++] = sizeof(cmd.recv);
+    // Copy the send_data into the input buffer
+    memcpy( &input[i], (void *)&cmd.send, sizeof(cmd.send) );
+    i += sizeof(cmd.send) + sizeof(cmd.recv);
+    // Close out the Joybus operation block
+    input[i] = 0xFE;
+    input[sizeof(input) - 1] = 0x01;
+    joybus_exec_async(input, gba_link_multiboot_identify_callback, (void*)context);
+}
+
+static void retry_identify(int ovfl, void *ctx) {
+    gba_link_multiboot_detect_context_t* context = (void*)ctx;
+    delete_timer(context->retry_timer);
+    timer_close();
+    context->retry_timer = NULL;
+    queue_joybus_input_reset_async(context);
+    queue_joybus_input_identify_async(context);
+}
+
+static void abort_identify(int ovfl, void *ctx) {
+    gba_link_multiboot_detect_context_t* context = (void*)ctx;
+    delete_timer(context->abort_timer);
+    timer_close();
+    context->abort_timer = NULL;
+    context->pending = false;
+}
+
+static void gba_link_multiboot_identify_callback(uint64_t *out_dwords, void *ctx) {
+    const uint8_t *out_bytes = (void *)out_dwords;
+    gba_link_multiboot_detect_context_t* context = (void*)ctx;
+    size_t i = context->port;
+    const joybus_cmd_identify_port_t *cmd = (void *)&out_bytes[i + JOYBUS_COMMAND_METADATA_SIZE];
+    bool multiboot_ready = false;
+    if ((out_bytes[i+1] & 0x80) == 0
+        && cmd->recv.identifier == JOYBUS_IDENTIFIER_GBA_LINK_CABLE
+        && cmd->recv.status == (JOYBUS_IDENTIFY_STATUS_GBA_GPIO0 | JOYBUS_IDENTIFY_STATUS_GBA_SENDING)
+    ) {
+        multiboot_ready = true;
+        context->pending = false;
+    }
+
+    if (!context->pending) {
+        if (context->abort_timer != NULL) {
+            delete_timer(context->abort_timer);
+            timer_close();
+        }
+        gba_link_multiboot_detect_callback_t callback = context->callback;
+        if (callback != NULL)
+            callback(context->port, multiboot_ready, (void*)context->ctx);
+        memset(context, 0, sizeof(gba_link_multiboot_detect_context_t));
+    } else {
+        timer_init();
+        context->retry_timer = new_timer_context(IDENTIFY_RETRY_DELAY_US, TF_ONE_SHOT, retry_identify, context);
+    }
+}
+
+void gba_link_multiboot_detect(int port, int timeout, gba_link_multiboot_detect_callback_t callback, void *ctx)
+{
+    // Disabled during reset
+    if( exception_reset_time() > 0 ) { return; }
+    // Already in-progress
+    if (gba_link_multiboot_detect_contexts[port].pending) { return; }
+
+    memset(&gba_link_multiboot_detect_contexts[port], 0, sizeof(gba_link_multiboot_detect_context_t));
+    gba_link_multiboot_detect_contexts[port].port = port;
+    gba_link_multiboot_detect_contexts[port].pending = true;
+    gba_link_multiboot_detect_contexts[port].progress = 0;
+    gba_link_multiboot_detect_contexts[port].callback = callback;
+    gba_link_multiboot_detect_contexts[port].retry_timer = NULL;
+    gba_link_multiboot_detect_contexts[port].ctx = ctx;
+    // Set abort timer
+    timer_init();
+    gba_link_multiboot_detect_contexts[port].abort_timer = new_timer_context(TIMER_TICKS(timeout * 1000), TF_ONE_SHOT, abort_identify, (void*)&gba_link_multiboot_detect_contexts[port]);
+    queue_joybus_input_reset_async(&gba_link_multiboot_detect_contexts[port]);
+    queue_joybus_input_identify_async(&gba_link_multiboot_detect_contexts[port]);
+}
+
+uint8_t gba_link_multiboot_progress(int port)
+{
+    if (multiboot_contexts[port].state == GBA_MULTIBOOT_IDLE) {
+        return 0;
+    }
+    return (100 * multiboot_contexts[port].sent) / multiboot_contexts[port].length;
+}
+
 
 /** @} */ /* gba_link */

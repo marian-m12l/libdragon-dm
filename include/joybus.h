@@ -262,13 +262,13 @@ typedef uint16_t joybus_identifier_t;
  */
 #define JOYBUS_IDENTIFY_STATUS_GBA_GPIO0                  0x10
 /**
- * @brief Joybus identify status byte mask for GBA Link Cable receiving flag.
- */
-#define JOYBUS_IDENTIFY_STATUS_GBA_RECEIVING              0x08
-/**
  * @brief Joybus identify status byte mask for GBA Link Cable sending flag.
  */
-#define JOYBUS_IDENTIFY_STATUS_GBA_SENDING                0x02
+#define JOYBUS_IDENTIFY_STATUS_GBA_SENDING                0x08
+/**
+ * @brief Joybus identify status byte mask for GBA Link Cable receiving flag.
+ */
+#define JOYBUS_IDENTIFY_STATUS_GBA_RECEIVING              0x02
 /** @} */
 
 /** @brief Joybus detection events enumeration */
