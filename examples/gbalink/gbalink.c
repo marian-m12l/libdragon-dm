@@ -55,7 +55,6 @@ static void gba_link_multiboot_detect_callback(int port, bool multiboot_ready, v
         // Send ROM via Multi Boot, GBA logo blinking green to yellow
         gba_link_multiboot_start(port, GBA_ROM_PATH, GBA_LINK_MULTIBOOT_LOGO_COLOR_3_GREEN, GBA_LINK_MULTIBOOT_LOGO_SPEED_PLUS_1, gba_link_multiboot_callback, NULL);
         printf("Starting GBA Multi Boot on port: %d.\n", port);
-        return;
     }
     identify_pending = false;
 }
