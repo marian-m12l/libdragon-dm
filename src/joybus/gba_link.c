@@ -1,6 +1,6 @@
 /**
  * @file gba_link.c
- * @author TODO
+ * @author tfmoe__ <https://github.com/marian-m12l>
  * @brief GBA Link Cable Subsystem
  * @ingroup gba_link
  */
@@ -24,7 +24,7 @@ uint8_t gba_link_get_status(int port)
     assert((port >= 0) && (port < JOYPAD_PORT_COUNT));
     uint8_t status;
     if (joybus_get_identifier(port, &status) != JOYBUS_IDENTIFIER_GBA_LINK_CABLE) {
-        return 0xff;
+        return 0;
     }
     return status;
 }

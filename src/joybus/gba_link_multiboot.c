@@ -1,6 +1,6 @@
 /**
  * @file gba_link_multiboot.c
- * @author TODO
+ * @author tfmoe__ <https://github.com/marian-m12l>
  * @brief GBA Link Cable support for Multi Boot
  * @ingroup gba_link
  */
@@ -104,7 +104,6 @@ typedef enum {
     GBA_MULTIBOOT_DONE,
 } multiboot_state_t;
 
-// FIXME Alignment issue ??
 typedef struct
 {
     FILE* file;
