@@ -10,9 +10,6 @@
 
 #include <stdbool.h>
 
-#include "preview.h"
-#include "gba_link.h"
-
 /**
  * @addtogroup gba_link
  * @{
@@ -56,7 +53,7 @@ typedef enum
 // | 6     | +1    | pink to white |
 // | 6     | -1    | white to pink |
 
-typedef enum : uint8_t {
+typedef enum {
 	GBA_LINK_MULTIBOOT_LOGO_COLOR_0_PINK = 0,
 	GBA_LINK_MULTIBOOT_LOGO_COLOR_1_BLUE,
 	GBA_LINK_MULTIBOOT_LOGO_COLOR_2_CYAN,
@@ -67,7 +64,7 @@ typedef enum : uint8_t {
 	// WHITE
 } gba_link_multiboot_logo_color_t;
 
-typedef enum : int8_t {
+typedef enum {
 	GBA_LINK_MULTIBOOT_LOGO_SPEED_MINUS_4 = -4,
 	GBA_LINK_MULTIBOOT_LOGO_SPEED_MINUS_3,
 	GBA_LINK_MULTIBOOT_LOGO_SPEED_MINUS_2,

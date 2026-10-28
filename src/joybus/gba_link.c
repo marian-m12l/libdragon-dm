@@ -10,15 +10,18 @@
 
 #include "gba_link.h"
 #include "joybus_commands.h"
+#include "joypad.h"
 
 
 bool gba_link_is_connected(int port)
 {
+    assert((port >= 0) && (port < JOYPAD_PORT_COUNT));
     return joybus_get_identifier(port, NULL) == JOYBUS_IDENTIFIER_GBA_LINK_CABLE;
 }
 
 uint8_t gba_link_get_status(int port)
 {
+    assert((port >= 0) && (port < JOYPAD_PORT_COUNT));
     uint8_t status;
     if (joybus_get_identifier(port, &status) != JOYBUS_IDENTIFIER_GBA_LINK_CABLE) {
         return 0xff;
@@ -53,8 +56,12 @@ static void gba_link_read_callback(uint64_t *out_dwords, void *ctx)
     }
 
     gba_link_read_callback_t callback = context->callback;
-    if (callback != NULL)
-        callback(port, cmdr->recv.data, cmdr->recv.status, io_status, (void*)context->ctx);
+    if (callback != NULL) {
+        // Command data may be misaligned, so we copy it to an aligned word
+        uint32_t copy;
+        memcpy(&copy, cmdr->recv.data, sizeof(cmdr->recv.data));
+        callback(port, (uint8_t*)&copy, cmdr->recv.status, io_status, (void*)context->ctx);
+    }
     free(context);
 }
 
@@ -64,6 +71,7 @@ void gba_link_read_async(
     void *ctx
 )
 {
+    assert((port >= 0) && (port < JOYPAD_PORT_COUNT));
     uint8_t input[JOYBUS_BLOCK_SIZE] = {0};
     joybus_cmd_gba_link_cable_read_port_t cmd = { .send = {
         .command = JOYBUS_COMMAND_ID_GBA_LINK_CABLE_READ,
@@ -126,6 +134,7 @@ void gba_link_write_async(
     void *ctx
 )
 {
+    assert((port >= 0) && (port < JOYPAD_PORT_COUNT));
     uint8_t input[JOYBUS_BLOCK_SIZE] = {0};
     joybus_cmd_gba_link_cable_write_port_t cmd = { .send = {
         .command = JOYBUS_COMMAND_ID_GBA_LINK_CABLE_WRITE,
@@ -152,6 +161,7 @@ void gba_link_write_async(
 
 gba_link_io_status_t gba_link_read(int port, uint8_t *data, uint8_t* gba_status)
 {
+    assert((port >= 0) && (port < JOYPAD_PORT_COUNT));
     joybus_cmd_gba_link_cable_read_port_t cmd = { .send = {
         .command = JOYBUS_COMMAND_ID_GBA_LINK_CABLE_READ,
     } };
@@ -168,6 +178,7 @@ gba_link_io_status_t gba_link_read(int port, uint8_t *data, uint8_t* gba_status)
 
 gba_link_io_status_t gba_link_write(int port, const uint8_t *data, uint8_t* gba_status)
 {
+    assert((port >= 0) && (port < JOYPAD_PORT_COUNT));
     joybus_cmd_gba_link_cable_write_port_t cmd = { .send = {
         .command = JOYBUS_COMMAND_ID_GBA_LINK_CABLE_WRITE,
     } };

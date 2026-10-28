@@ -6,14 +6,15 @@
  */
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "asset.h"
 #include "interrupt.h"
-#include "joybus_commands.h"
-#include "timer.h"
+#include "gba_link.h"
 #include "gba_link_multiboot.h"
+#include "joybus_commands.h"
+#include "joypad.h"
+#include "timer.h"
 
 
 #define IDENTIFY_RETRY_DELAY_US TIMER_TICKS(5000)
@@ -118,7 +119,7 @@ typedef struct
     void *ctx;
 } multiboot_context_t;
 
-static multiboot_context_t multiboot_contexts[4];
+static multiboot_context_t multiboot_contexts[JOYPAD_PORT_COUNT];
 
 static void terminate_multiboot(int port, gba_link_multiboot_status_t status, multiboot_context_t* context) {
     gba_link_multiboot_callback_t callback = context->callback;
@@ -130,7 +131,7 @@ static void terminate_multiboot(int port, gba_link_multiboot_status_t status, mu
 
 static void gba_link_write_callback(int port, uint8_t gba_status, gba_link_io_status_t io_status, void *ctx);
 
-static void gba_link_read_callback(int port, const uint8_t data[4], uint8_t gba_status, gba_link_io_status_t io_status, void *ctx) {
+static void gba_link_read_callback(int port, const uint8_t data[JOYBUS_GBA_LINK_CABLE_DATA_SIZE], uint8_t gba_status, gba_link_io_status_t io_status, void *ctx) {
     multiboot_context_t* context = (void*) ctx;
     // Handle I/O errors
     if (io_status != GBA_LINK_IO_STATUS_OK) {
@@ -192,7 +193,7 @@ static void gba_link_write_callback(int port, uint8_t gba_status, gba_link_io_st
                 terminate_multiboot(port, GBA_LINK_MULTIBOOT_BAD_STATUS, context);
                 return; 
             }
-            uint8_t buf[4];
+            uint8_t buf[JOYBUS_GBA_LINK_CABLE_DATA_SIZE];
             size_t nread;
             if ((nread = fread(buf, sizeof(buf[0]), sizeof(buf), context->file)) != 0) {
                 gba_link_write_async(port, buf, gba_link_write_callback, ctx);
@@ -217,7 +218,7 @@ static void gba_link_write_callback(int port, uint8_t gba_status, gba_link_io_st
             // FIXME avoid swapping twice
             uint32_t d = 0; // If rounded-length is larger than file length, pad with zeroes
             if (context->sent < context->length) {
-                uint8_t buf[4];
+                uint8_t buf[JOYBUS_GBA_LINK_CABLE_DATA_SIZE];
                 size_t nread;
                 if ((nread = fread(buf, sizeof(buf[0]), sizeof(buf), context->file)) != 0) {
                     d = __builtin_bswap32(*(uint32_t*)buf);
@@ -273,6 +274,7 @@ void gba_link_multiboot_start(
     void *ctx
 )
 {
+    assert((port >= 0) && (port < JOYPAD_PORT_COUNT));
     memset(&multiboot_contexts[port], 0, sizeof(multiboot_context_t));
     multiboot_contexts[port].callback = callback;
     multiboot_contexts[port].ctx = ctx;
@@ -294,7 +296,7 @@ typedef struct
     void *ctx;
 } gba_link_multiboot_detect_context_t;
 
-static gba_link_multiboot_detect_context_t gba_link_multiboot_detect_contexts[4];
+static gba_link_multiboot_detect_context_t gba_link_multiboot_detect_contexts[JOYPAD_PORT_COUNT];
 
 static void gba_link_multiboot_identify_callback(uint64_t *out_dwords, void *ctx);
 
@@ -386,6 +388,7 @@ static void gba_link_multiboot_identify_callback(uint64_t *out_dwords, void *ctx
 
 void gba_link_multiboot_detect(int port, int timeout, gba_link_multiboot_detect_callback_t callback, void *ctx)
 {
+    assert((port >= 0) && (port < JOYPAD_PORT_COUNT));
     // Disabled during reset
     if( exception_reset_time() > 0 ) { return; }
     // Already in-progress
@@ -407,6 +410,7 @@ void gba_link_multiboot_detect(int port, int timeout, gba_link_multiboot_detect_
 
 uint8_t gba_link_multiboot_progress(int port)
 {
+    assert((port >= 0) && (port < JOYPAD_PORT_COUNT));
     if (multiboot_contexts[port].state == GBA_MULTIBOOT_IDLE) {
         return 0;
     }

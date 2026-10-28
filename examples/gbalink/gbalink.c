@@ -60,7 +60,7 @@ static void gba_link_multiboot_detect_callback(int port, bool multiboot_ready, v
     identify_pending = false;
 }
 
-static void gba_link_read_callback(int port, const uint8_t data[4], uint8_t gba_status, gba_link_io_status_t io_status, void *ctx) {
+static void gba_link_read_callback(int port, const uint8_t data[JOYBUS_GBA_LINK_CABLE_DATA_SIZE], uint8_t gba_status, gba_link_io_status_t io_status, void *ctx) {
     if (io_status == GBA_LINK_IO_STATUS_OK) {
         // Received controller status
         gba_controller_held = __builtin_bswap32(*(uint32_t*)data);

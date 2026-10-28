@@ -9,9 +9,9 @@
 #define LIBDRAGON_GBA_LINK_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
-#include "preview.h"
-#include "joypad.h"
+#include "joybus.h"
 
 /**
  * @defgroup gba_link GBA Link Cable Subsystem
@@ -63,7 +63,7 @@ typedef enum
  * @param io_status         Indicates whether the operation was successful or not.
  * @param ctx               User-defined context pointer.
  */
-typedef void (*gba_link_read_callback_t)(int port, const uint8_t data[4], uint8_t gba_status, gba_link_io_status_t io_status, void *ctx);
+typedef void (*gba_link_read_callback_t)(int port, const uint8_t data[JOYBUS_GBA_LINK_CABLE_DATA_SIZE], uint8_t gba_status, gba_link_io_status_t io_status, void *ctx);
 
 /**
  * @brief GBA write callback function type.
