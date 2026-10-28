@@ -19,56 +19,34 @@
 
 #define IDENTIFY_RETRY_DELAY_US TIMER_TICKS(5000)
 
-// TODO Simplify functions calc_key, update_crc, and cipher_data
-
 #define ROUND_UP_8(val) (((val) + 7) & ~7)
 
-// TODO char* keys = " by Kawasedo";
-#define MAGIC_SEDO 0x7365646f  // "odes" or "sedo" ?
-#define MAGIC_KAWA 0x6177614b  // "awaK" or "Kawa" ?
-#define MAGIC_BY 0x20796220  // " yb " or " by " ?
+// Keys extracted from secret string " by Kawasedo"
+#define MAGIC_BY 0x20627920     // " by "
+#define MAGIC_KAWA 0x4b617761   // "Kawa"
+#define MAGIC_SEDO 0x7365646f   // "sedo"
 
-uint32_t calc_key(uint32_t size, gba_link_multiboot_logo_speed_t speed, gba_link_multiboot_logo_color_t color) {
-	uint32_t ret = 0;
-	size = (size-0x200) >> 3;
-	//uint32_t pal = 0x2e << 16;	// Color 2 (0..6) Speed -4 (-4..4)
-	uint32_t pal = speed < 0
-		? ((color << 4 | (3 - speed)*2))
+uint32_t calc_key(uint32_t length, gba_link_multiboot_logo_speed_t speed, gba_link_multiboot_logo_color_t color) {
+    // Compute payload length in 8-byte blocks, past the minimum 512 bytes
+	length = (length - 0x200) >> 3;
+	// Compute logo settings
+    uint32_t logo = speed < 0
+		? (color << 3 | (3 - speed))
 		: (speed > 0
-			? (color << 4 | (speed - 1)*2)
-			: (color << 1 | 0x70)
+			? (color << 3 | (speed - 1))
+			: (color | 0x38)
 		);
-	pal <<= 16;
-	int res1 = pal;
-	res1 |= (size&0x3F80) << 1;
-	res1 |= (size&0x4000) << 2;
-	res1 |= (size&0x7F);
-	int res2 = res1;
-	res1 = res2 >> 0x10;
-	int res3 = res2 >> 8;
-	res3 += res1;
-	res3 += res2;
-	res3 <<= 24;
-	res3 |= res2;
-	res3 |= 0x80808080;
-
-    // FIXME Compare with __builtin_bswap32(res3 ^ 0x6177614B); // "kawa" --> LE & BE !!
-    // FIXME Compare with __builtin_bswap32(res3 ^ 0x6F646573); // "sedo" --> LE & BE !!
-    // TODO swap ??
-    //return __builtin_bswap32(res3 ^ ((res3 & 0x200) != 0 ? MAGIC_SEDO : __builtin_bswap32(MAGIC_KAWA)));
-
-	if((res3&0x200) == 0) {
-		ret |= (((res3)&0xFF)^0x4B)<<24;
-		ret |= (((res3>>8)&0xFF)^0x61)<<16;
-		ret |= (((res3>>16)&0xFF)^0x77)<<8;
-		ret |= (((res3>>24)&0xFF)^0x61);
-	} else {
-		ret |= (((res3)&0xFF)^0x73)<<24;
-		ret |= (((res3>>8)&0xFF)^0x65)<<16;
-		ret |= (((res3>>16)&0xFF)^0x64)<<8;
-		ret |= (((res3>>24)&0xFF)^0x6F);
-	}
-	return ret;
+    // Mangle payload length
+    uint32_t mangled = (length & 0x4000) << 2 | (length & 0x3f80) << 1 | (length & 0x7f);
+    // Combine mangled length with logo settings
+    uint32_t key = (logo << 17) | mangled;
+    // Checksum
+    uint8_t checksum = ((key >> 16) + (key >> 8) + key) & 0x7f;
+    // Combine key with checksum and fixed bits
+    key = (checksum << 24) | 0x80808080 | key;
+    // XOR with the correct key
+    uint32_t xorkey = (key & 0x200) ? MAGIC_SEDO : MAGIC_KAWA;
+    return __builtin_bswap32(key) ^ xorkey;
 }
 
 uint32_t update_crc(uint32_t crc, uint32_t val) {
@@ -85,12 +63,10 @@ uint32_t update_crc(uint32_t crc, uint32_t val) {
 }
 
 uint32_t cipher_data(uint32_t data, int i, uint32_t* sessionkey) {
-    *sessionkey = (*sessionkey * 0x6177614B) + 1;   // "Kawa"
-    // *sessionkey = (*sessionkey * 0x4b617761) + 1;   // "Kawa"
+    *sessionkey = (*sessionkey * __builtin_bswap32(MAGIC_KAWA)) + 1;
     data ^= *sessionkey;
     data ^= ((~(i + (0x20<<20))) + 1);
-    data ^= 0x20796220; // " by "
-    //data ^= 0x20627920; // " by "
+    data ^= __builtin_bswap32(MAGIC_BY);
     return data;
 }
 
@@ -214,7 +190,6 @@ static void gba_link_write_callback(int port, uint8_t gba_status, gba_link_io_st
 
             // ROM data must be ciphered for the remaining of the payload
             // CRC is updated for each packet sent
-            // FIXME avoid swapping twice
             uint32_t d = 0; // If rounded-length is larger than file length, pad with zeroes
             if (context->sent < context->length) {
                 uint8_t buf[JOYBUS_GBA_LINK_CABLE_DATA_SIZE];
