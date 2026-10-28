@@ -12,6 +12,7 @@
 #include <stdint.h>
 
 #include "joybus.h"
+#include "preview.h"
 
 /**
  * @defgroup gba_link GBA Link Cable Subsystem
@@ -87,6 +88,7 @@ typedef void (*gba_link_write_callback_t)(int port, uint8_t gba_status, gba_link
  * @retval true             A GBA Link Cable is connected to the Joybus port.
  * @retval false            No GBA Link Cable is connected to the Joybus port.
  */
+LIBDRAGON_PREVIEW_API
 bool gba_link_is_connected(int port);
 
 /**
@@ -100,6 +102,7 @@ bool gba_link_is_connected(int port);
  *
  * @return The last known status for the specified port.
  */
+LIBDRAGON_PREVIEW_API
 uint8_t gba_link_get_status(int port);
 
 /**
@@ -109,6 +112,7 @@ uint8_t gba_link_get_status(int port);
  * @param callback          A function pointer to call when the operation completes.
  * @param ctx               A user data pointer to pass into the callback function.
  */
+LIBDRAGON_PREVIEW_API
 void gba_link_read_async(int port, gba_link_read_callback_t callback, void *ctx);
 
 /**
@@ -119,6 +123,7 @@ void gba_link_read_async(int port, gba_link_read_callback_t callback, void *ctx)
  * @param callback          A function pointer to call when the operation completes.
  * @param ctx               A user data pointer to pass into the callback function.
  */
+LIBDRAGON_PREVIEW_API
 void gba_link_write_async(int port, const uint8_t *data, gba_link_write_callback_t callback, void *ctx);
 
 /**
@@ -133,6 +138,7 @@ void gba_link_write_async(int port, const uint8_t *data, gba_link_write_callback
  * @retval #GBA_LINK_IO_STATUS_DATA_NOT_READY The data was not read successfully because the device is not ready.
  * @retval #GBA_LINK_IO_STATUS_UNEXPECTED_STATUS The data was not read successfully because the device is in an invalid state.
  */
+LIBDRAGON_PREVIEW_API
 gba_link_io_status_t gba_link_read(int port, uint8_t *data, uint8_t* gba_status);
 
 /**
@@ -146,6 +152,7 @@ gba_link_io_status_t gba_link_read(int port, uint8_t *data, uint8_t* gba_status)
  * @retval #GBA_LINK_IO_STATUS_ABSENT The data was not written successfully because the device is absent.
  * @retval #GBA_LINK_IO_STATUS_UNEXPECTED_STATUS The data was not written successfully because the device is in an invalid state.
  */
+LIBDRAGON_PREVIEW_API
 gba_link_io_status_t gba_link_write(int port, const uint8_t *data, uint8_t* gba_status);
 
 

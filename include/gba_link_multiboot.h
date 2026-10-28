@@ -10,6 +10,8 @@
 
 #include <stdbool.h>
 
+#include "preview.h"
+
 /**
  * @addtogroup gba_link
  * @{
@@ -115,6 +117,7 @@ typedef void (*gba_link_multiboot_callback_t)(int port, gba_link_multiboot_statu
  * @param callback 			A function pointer to call when the operation completes.
  * @param ctx 				A user data pointer to pass into the callback function.
  */
+LIBDRAGON_PREVIEW_API
 void gba_link_multiboot_start(int port, const char* filename, gba_link_multiboot_logo_color_t logo_color, gba_link_multiboot_logo_speed_t logo_speed, gba_link_multiboot_callback_t callback, void *ctx);
 
 
@@ -141,6 +144,7 @@ typedef void (*gba_link_multiboot_detect_callback_t)(int port, bool multiboot_re
  * @param callback 			A function pointer to call when the operation completes.
  * @param ctx 				A user data pointer to pass into the callback function.
  */
+LIBDRAGON_PREVIEW_API
 void gba_link_multiboot_detect(int port, int timeout, gba_link_multiboot_detect_callback_t callback, void *ctx);
 
 /**
@@ -150,6 +154,7 @@ void gba_link_multiboot_detect(int port, int timeout, gba_link_multiboot_detect_
  * 
  * @return The progess (in percent), or 0 if there is no Multi Boot operation happening.
  */
+LIBDRAGON_PREVIEW_API
 uint8_t gba_link_multiboot_progress(int port);
 
 
