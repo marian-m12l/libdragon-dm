@@ -88,6 +88,7 @@ typedef struct
     gba_link_multiboot_logo_speed_t logo_speed;
     multiboot_state_t state;
     uint32_t crc;
+    uint32_t dummy[8];
     uint32_t sessionkey;
     int sent;
     gba_link_multiboot_callback_t callback;
@@ -137,7 +138,11 @@ static void gba_link_read_callback(int port, const uint8_t data[JOYBUS_GBA_LINK_
         case GBA_MULTIBOOT_CRC:
             break;
         case GBA_MULTIBOOT_CHECK: {
-            // TODO Check GBA response ? Read twice (dummy bytes, initial code) ??
+            uint32_t d = __builtin_bswap32(*(uint32_t*)data);
+            if (d != context->dummy[4] && d != context->dummy[5] && d != context->dummy[6]) {
+                terminate_multiboot(port, GBA_LINK_MULTIBOOT_BAD_DUMMY_BYTE, context);
+                return;
+            }
             context->state = GBA_MULTIBOOT_DONE;
             terminate_multiboot(port, GBA_LINK_MULTIBOOT_OK, context);
             break;
@@ -187,7 +192,6 @@ static void gba_link_write_callback(int port, uint8_t gba_status, gba_link_io_st
                 terminate_multiboot(port, GBA_LINK_MULTIBOOT_BAD_STATUS, context);
                 return; 
             }
-
             // ROM data must be ciphered for the remaining of the payload
             // CRC is updated for each packet sent
             uint32_t d = 0; // If rounded-length is larger than file length, pad with zeroes
@@ -203,6 +207,17 @@ static void gba_link_write_callback(int port, uint8_t gba_status, gba_link_io_st
             }
             uint32_t cipherText = __builtin_bswap32(cipher_data(d, context->sent, &context->sessionkey));
             context->crc = update_crc(context->crc, d);
+            // Collect dummy bytes to check against at the end of Multi Boot
+            if (context->sent == 0x1f8) {
+                context->dummy[0] = d;
+                context->dummy[2] = __builtin_bswap32(cipherText);
+            } else if (context->sent == 0x1fc) {
+                context->dummy[1] = d;
+                context->dummy[3] = __builtin_bswap32(cipherText);
+                context->dummy[4] = context->dummy[2] * context->dummy[3];
+                context->dummy[5] = context->dummy[0] * context->dummy[1];
+                context->dummy[6] = context->dummy[0] * context->dummy[3];
+            }
             gba_link_write_async(port, (uint8_t*) &cipherText, gba_link_write_callback, ctx);
             context->sent += 4;
             if (context->sent == ROUND_UP_8(context->length)) {
@@ -215,22 +230,18 @@ static void gba_link_write_callback(int port, uint8_t gba_status, gba_link_io_st
                 terminate_multiboot(port, GBA_LINK_MULTIBOOT_BAD_STATUS, context);
                 return; 
             }
-
             // Finalize and send CRC
             context->crc |= (ROUND_UP_8(context->length) << 16);
             context->crc = __builtin_bswap32(cipher_data(context->crc, context->sent, &context->sessionkey));
             gba_link_write_async(port, (uint8_t*) &context->crc, gba_link_write_callback, ctx);
             context->state = GBA_MULTIBOOT_CHECK;
-            // TODO Check GBA Status
             break;
         }
         case GBA_MULTIBOOT_CHECK: {
-            // TODO sent + 4 ??
-            /*if ((gba_status & JOYBUS_IDENTIFY_STATUS_GBA_GPIO0) != (~(context->sent<<2) & JOYBUS_IDENTIFY_STATUS_GBA_GPIO0)) {
+            if ((gba_status & JOYBUS_IDENTIFY_STATUS_GBA_GPIO0) != (~((context->sent+4)<<2) & JOYBUS_IDENTIFY_STATUS_GBA_GPIO0)) {
                 terminate_multiboot(port, GBA_LINK_MULTIBOOT_BAD_STATUS, context);
                 return; 
-            }*/
-
+            }
             gba_link_read_async(port, gba_link_read_callback, ctx);
             break;
         }

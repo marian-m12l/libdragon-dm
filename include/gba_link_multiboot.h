@@ -29,6 +29,8 @@ typedef enum
     GBA_LINK_MULTIBOOT_BAD_IO,
     /** @brief GBA Multi Boot failed because the GBA reported a status inconsistent with I/O operations. */
     GBA_LINK_MULTIBOOT_BAD_STATUS,
+    /** @brief GBA Multi Boot failed because the GBA reported a dummy byte inconsistent with uploaded data. */
+    GBA_LINK_MULTIBOOT_BAD_DUMMY_BYTE,
     /** @brief GBA Multi Boot failed because of an issue while reading file. */
     GBA_LINK_MULTIBOOT_BAD_FILE
 } gba_link_multiboot_status_t;
