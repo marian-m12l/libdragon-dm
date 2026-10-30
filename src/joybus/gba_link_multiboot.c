@@ -16,6 +16,11 @@
 #include "joypad.h"
 #include "timer.h"
 
+/**
+ * @addtogroup gba_link
+ * @{
+ */
+
 
 #define IDENTIFY_RETRY_DELAY_US TIMER_TICKS(5000)
 
@@ -80,6 +85,9 @@ typedef enum {
     GBA_MULTIBOOT_DONE,
 } multiboot_state_t;
 
+/** 
+ * @brief Multi Boot context
+ */
 typedef struct
 {
     FILE* file;
@@ -270,6 +278,9 @@ void gba_link_multiboot_start(
 }
 
 
+/** 
+ * @brief Async detection context
+ */
 typedef struct
 {
     int port;

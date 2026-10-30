@@ -12,6 +12,11 @@
 #include "joybus_commands.h"
 #include "joypad.h"
 
+/**
+ * @addtogroup gba_link
+ * @{
+ */
+
 
 bool gba_link_is_connected(int port)
 {
@@ -29,6 +34,9 @@ uint8_t gba_link_get_status(int port)
     return status;
 }
 
+/** 
+ * @brief Async read command context
+ */
 typedef struct
 {
     int port;
@@ -95,6 +103,9 @@ void gba_link_read_async(
     joybus_exec_async(input, gba_link_read_callback, (void*)gba_link_read_context);
 }
 
+/** 
+ * @brief Async write command context
+ */
 typedef struct
 {
     int port;
