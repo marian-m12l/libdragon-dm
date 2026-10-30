@@ -22,16 +22,22 @@
  */
 
 
+/** @brief Delay between two attempts to detect GBA Link ready for Multi Boot */
 #define IDENTIFY_RETRY_DELAY_US TIMER_TICKS(5000)
 
+/** @brief Payload length must be rounded up to the nearest 8-byte boundary */
 #define ROUND_UP_8(val) (((val) + 7) & ~7)
 
 // Keys extracted from secret string " by Kawasedo"
-#define MAGIC_BY 0x20627920     // " by "
-#define MAGIC_KAWA 0x4b617761   // "Kawa"
-#define MAGIC_SEDO 0x7365646f   // "sedo"
+/** @brief Key: " by " */
+#define MAGIC_BY 0x20627920
+/** @brief Key: "Kawa" */
+#define MAGIC_KAWA 0x4b617761
+/** @brief Key: "sedo" */
+#define MAGIC_SEDO 0x7365646f
 
-uint32_t calc_key(uint32_t length, gba_link_multiboot_logo_speed_t speed, gba_link_multiboot_logo_color_t color) {
+/** @brief Calculate key B from payload length and logo settings */
+static uint32_t calc_key(uint32_t length, gba_link_multiboot_logo_speed_t speed, gba_link_multiboot_logo_color_t color) {
     // Compute payload length in 8-byte blocks, past the minimum 512 bytes
 	length = (length - 0x200) >> 3;
 	// Compute logo settings
@@ -54,7 +60,8 @@ uint32_t calc_key(uint32_t length, gba_link_multiboot_logo_speed_t speed, gba_li
     return __builtin_bswap32(key) ^ xorkey;
 }
 
-uint32_t update_crc(uint32_t crc, uint32_t val) {
+/** @brief Update the running CRC with latest payload word */
+static uint32_t update_crc(uint32_t crc, uint32_t val) {
     for (int i = 0; i < 0x20; i++) {
         if ((crc ^ val) & 1) {
 			crc >>= 1;
@@ -67,7 +74,8 @@ uint32_t update_crc(uint32_t crc, uint32_t val) {
 	return crc;
 }
 
-uint32_t cipher_data(uint32_t data, int i, uint32_t* sessionkey) {
+/** @brief Cipher payload word and update session key */
+static uint32_t cipher_data(uint32_t data, int i, uint32_t* sessionkey) {
     *sessionkey = (*sessionkey * __builtin_bswap32(MAGIC_KAWA)) + 1;
     data ^= *sessionkey;
     data ^= ((~(i + (0x20<<20))) + 1);
@@ -76,6 +84,7 @@ uint32_t cipher_data(uint32_t data, int i, uint32_t* sessionkey) {
 }
 
 
+/** @brief Internal state for Multi Boot */
 typedef enum {
     GBA_MULTIBOOT_IDLE = 0,
     GBA_MULTIBOOT_CLEARTEXT,
@@ -103,8 +112,10 @@ typedef struct
     void *ctx;
 } multiboot_context_t;
 
+/** @brief Per-port Multi Boot contexts */
 static multiboot_context_t multiboot_contexts[JOYPAD_PORT_COUNT];
 
+/** @brief Terminate Multi Boot, execute callback with status, close file and clear context */
 static void terminate_multiboot(int port, gba_link_multiboot_status_t status, multiboot_context_t* context) {
     gba_link_multiboot_callback_t callback = context->callback;
     if (callback != NULL)
@@ -292,6 +303,7 @@ typedef struct
     void *ctx;
 } gba_link_multiboot_detect_context_t;
 
+/** @brief Per-port detection contexts */
 static gba_link_multiboot_detect_context_t gba_link_multiboot_detect_contexts[JOYPAD_PORT_COUNT];
 
 static void gba_link_multiboot_identify_callback(uint64_t *out_dwords, void *ctx);
